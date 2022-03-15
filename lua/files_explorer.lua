@@ -37,24 +37,10 @@ local function get_bookmarks(files, opts)
 end
 
 M.show = function()
+
   coroutine.wrap(function()
-    local bookmarkes = get_bookmarks(vim.fn['bm#all_files'](), nil)
-
-    local items = {}
-    for _, bookmark in pairs(bookmarkes) do
-      setmetatable(bookmark, {
-        __tostring = function(table)
-          return string.format("%s         %s:%d", table.text, table.filename,
-                               table.lnum)
-        end
-      })
-
-      table.insert(items, bookmark)
-      items[tostring(bookmark)] = bookmark
-    end
-
     local opts = config.normalize_opts({}, config.globals.files)
-    opts.prompt = 'Bookmarks❯ '
+    opts.prompt = 'File Explorer❯ '
     opts.actions = {}
     opts.actions['default'] = function(selected)
       local item = {}
@@ -66,9 +52,17 @@ M.show = function()
       vim.cmd(string.format('e +%d  %s', item.lnum, item.filename))
     end
 
-    local selected = core.fzf(opts, items, core.build_fzf_cli(opts),
-                              config.globals.winopts)
-    actions.act(opts.actions, selected)
+    local cmd = "ls -a"
+    while true do
+      local selected = core.fzf(opts, cmd, core.build_fzf_cli(opts),
+                                config.globals.winopts)
+      if vim.fn.isdirectory(selected[1]) == 1 then
+        cmd = "ls .. -a"
+      else
+        break
+      end
+    end
+
   end)()
 end
 
