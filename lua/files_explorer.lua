@@ -19,7 +19,7 @@ M.projects = function(opts)
   opts.autoclose = false;
   opts.actions = {
     ['default'] = function(selected)
-      local project = core.my_make_entry_file(opts, selected[1])
+      local project = core.make_entry_file(opts, selected[1])
       win.win_leave()
       return require('fzf-lua').my_files({cwd = project})
     end,
