@@ -2,68 +2,77 @@ if not pcall(require, 'fzf') then return end
 
 local core = require('fzf-lua.core')
 local config = require "fzf-lua.config"
-local actions = require "fzf-lua.actions"
-local helpers = require("fzf.helpers")
+local libuv = require "fzf-lua.libuv"
+local win = require "fzf-lua.win"
 
 local M = {}
 
-local function get_bookmarks(files, opts)
-  opts = opts or {}
-  local bookmarks = {}
+local function parent_dir(file) return vim.fn.fnamemodify(file, ':p:h') end
 
-  for _, file in ipairs(files) do
-    for _, line in ipairs(vim.fn['bm#all_lines'](file)) do
-      local bookmark = vim.fn['bm#get_bookmark_by_line'](file, line)
+M.projects = function(opts)
+  opts = config.normalize_opts(opts, config.globals.files)
+  opts.prompt = 'Projects❯ '
+  opts.file_icons = false
+  opts.color_icons = false
+  opts.git_icons = false
 
-      local text = bookmark.annotation ~= "" and "Annotation: " ..
-                       bookmark.annotation or bookmark.content
-      if text == "" then text = "(empty line)" end
+  opts.autoclose = false;
+  opts.actions = {
+    ['default'] = function(selected)
+      local project = core.my_make_entry_file(opts, selected[1])
+      win.win_leave()
+      return require('fzf-lua').my_files({cwd = project})
+    end,
+    ['ctrl-c'] = function() win.win_leave() end
+  }
 
-      local only_annotated = opts.only_annotated or false
-
-      if not (only_annotated and bookmark.annotation == "") then
-        table.insert(bookmarks, {
-          filename = file,
-          lnum = tonumber(line),
-          col = 1,
-          text = text,
-          sign_idx = bookmark.sign_idx
-        })
-      end
-    end
-  end
-
-  return bookmarks
+  opts.fzf_fn = require("project_nvim").get_recent_projects()
+  return core.fzf_files(opts)
 end
 
-M.show = function()
+M.file_explorer = function(opts)
+  opts = config.normalize_opts(opts, config.globals.files)
+  if not opts then return end
+  opts.prompt = 'File Explorer❯ '
+  opts.file_icons = false
+  opts.color_icons = false
+  opts.git_icons = false
 
-  coroutine.wrap(function()
-    local opts = config.normalize_opts({}, config.globals.files)
-    opts.prompt = 'File Explorer❯ '
-    opts.actions = {}
-    opts.actions['default'] = function(selected)
-      local item = {}
-      if selected[1] == "" then
-        item = items[selected[2]]
+  local dir = parent_dir(vim.fn.fnamemodify(opts.startdir or '%', ':p'))
+  local cmd = string.format("ls --color -A %s", vim.fn.fnamemodify(dir, ':p'))
+  opts.fzf_opts['--header'] = dir
+
+  opts.autoclose = false;
+  opts.actions = {
+    ['default'] = function(selected)
+      local item = core.make_entry_file(opts, selected[1])
+      local path = string.format("%s/%s", dir, item)
+      if vim.fn.isdirectory(path) == 1 then
+        opts.startdir = path
+        M.file_explorer(opts)
       else
-        item = items[selected[1]]
+        win.win_leave()
+        local actions = require "fzf-lua.actions"
+        selected[1] = path
+        actions.file_edit(selected, opts)
       end
-      vim.cmd(string.format('e +%d  %s', item.lnum, item.filename))
-    end
+    end,
 
-    local cmd = "ls -a"
-    while true do
-      local selected = core.fzf(opts, cmd, core.build_fzf_cli(opts),
-                                config.globals.winopts)
-      if vim.fn.isdirectory(selected[1]) == 1 then
-        cmd = "ls .. -a"
-      else
-        break
-      end
-    end
+    ['ctrl-w'] = function()
+      local path = string.format("%s/%s", dir, "..")
+      opts.startdir = path
+      return M.file_explorer(opts)
+    end,
+    ['ctrl-c'] = function() win.win_leave() end
+  }
 
-  end)()
+  opts.fzf_fn = libuv.spawn_nvim_fzf_cmd({
+    cmd = cmd,
+    cwd = opts.cwd,
+    pid_cb = opts._pid_cb
+  }, function(x) return core.make_entry_file(opts, x) end)
+
+  return core.fzf_files(opts)
 end
 
 return M
